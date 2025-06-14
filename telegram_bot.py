@@ -185,6 +185,7 @@ VENDEDORA_ID = os.getenv("VENDEDORA_ID", "123456789")  # Substitua pelo ID real
 def get_db_connection():
     return sqlite3.connect("bot_database.db")
 
+
 def get_config(chave):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -193,12 +194,17 @@ def get_config(chave):
     conn.close()
     return result[0] if result else None
 
+
 def set_config(chave, valor):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES (?, ?)", (chave, valor))
+    cursor.execute(
+        "INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES (?, ?)",
+        (chave, valor),
+    )
     conn.commit()
     conn.close()
+
 
 def get_rifa_config(chave):
     conn = get_db_connection()
@@ -208,12 +214,17 @@ def get_rifa_config(chave):
     conn.close()
     return result[0] if result else None
 
+
 def set_rifa_config(chave, valor):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO rifa_configuracoes (chave, valor) VALUES (?, ?)", (chave, valor))
+    cursor.execute(
+        "INSERT OR REPLACE INTO rifa_configuracoes (chave, valor) VALUES (?, ?)",
+        (chave, valor),
+    )
     conn.commit()
     conn.close()
+
 
 def is_user_subscribed_to_rifa(user_id):
     conn = get_db_connection()
@@ -223,12 +234,17 @@ def is_user_subscribed_to_rifa(user_id):
     conn.close()
     return result is not None
 
+
 def subscribe_user_to_rifa(user_id, username):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT OR IGNORE INTO rifa_inscritos (user_id, username) VALUES (?, ?)", (user_id, username))
+    cursor.execute(
+        "INSERT OR IGNORE INTO rifa_inscritos (user_id, username) VALUES (?, ?)",
+        (user_id, username),
+    )
     conn.commit()
     conn.close()
+
 
 def unsubscribe_user_from_rifa(user_id):
     conn = get_db_connection()
@@ -236,6 +252,7 @@ def unsubscribe_user_from_rifa(user_id):
     cursor.execute("DELETE FROM rifa_inscritos WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
+
 
 def get_all_rifa_subscribers():
     conn = get_db_connection()
@@ -286,7 +303,9 @@ def obter_grupos_gerenciados():
 
 
 # Função para salvar mensagem programada
-def salvar_mensagem_programada(mensagem, horario, dias_semana=None, grupo_id=None, tipo='text', media_file_id=None):
+def salvar_mensagem_programada(
+    mensagem, horario, dias_semana=None, grupo_id=None, tipo="text", media_file_id=None
+):
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
 
@@ -318,12 +337,22 @@ def obter_mensagens_programadas():
 
 
 # Função para enviar mensagem para grupo
-async def enviar_mensagem_grupo(grupo_id, mensagem, tipo='text', media_file_id=None):
+async def enviar_mensagem_grupo(grupo_id, mensagem, tipo="text", media_file_id=None):
     try:
-        if tipo == 'photo' and media_file_id:
-            await bot.send_photo(chat_id=grupo_id, photo=media_file_id, caption=mensagem, parse_mode="Markdown")
-        elif tipo == 'video' and media_file_id:
-            await bot.send_video(chat_id=grupo_id, video=media_file_id, caption=mensagem, parse_mode="Markdown")
+        if tipo == "photo" and media_file_id:
+            await bot.send_photo(
+                chat_id=grupo_id,
+                photo=media_file_id,
+                caption=mensagem,
+                parse_mode="Markdown",
+            )
+        elif tipo == "video" and media_file_id:
+            await bot.send_video(
+                chat_id=grupo_id,
+                video=media_file_id,
+                caption=mensagem,
+                parse_mode="Markdown",
+            )
         else:
             await bot.send_message(grupo_id, mensagem, parse_mode="Markdown")
         logging.info(f"Mensagem enviada para grupo {grupo_id}")
@@ -628,7 +657,7 @@ async def process_callback(query: types.CallbackQuery, state: FSMContext):
 
     elif query_data == "grupo_previas":
         await query.message.edit_text(
-            "Acesse nosso grupo de prévias aqui: [Link do Grupo](https://t.me/seu_grupo_de_previas)"
+            "Acesse nosso grupo de prévias aqui:(https://t.me/seu_grupo_de_previas)"
         )
 
     elif query_data == "contato":
@@ -642,35 +671,79 @@ async def process_callback(query: types.CallbackQuery, state: FSMContext):
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(text="Acessar Rifa", url=rifa_link)],
-                    [InlineKeyboardButton(text="Inscrever-me para Notificações", callback_data="rifa_inscrever")],
-                    [InlineKeyboardButton(text="Cancelar Notificações", callback_data="rifa_cancelar")],
-                    [InlineKeyboardButton(text="🔙 Voltar", callback_data="voltar_menu")],
+                    [
+                        InlineKeyboardButton(
+                            text="Inscrever-me para Notificações",
+                            callback_data="rifa_inscrever",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Cancelar Notificações", callback_data="rifa_cancelar"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="🔙 Voltar", callback_data="voltar_menu"
+                        )
+                    ],
                 ]
             )
-            await query.message.edit_text("🎉 Participe da nossa rifa!", reply_markup=keyboard)
+            await query.message.edit_text(
+                "🎉 Participe da nossa rifa!", reply_markup=keyboard
+            )
         else:
-            await query.message.edit_text("Desculpe, o link da rifa ainda não foi configurado.", reply_markup=get_main_menu())
+            await query.message.edit_text(
+                "Desculpe, o link da rifa ainda não foi configurado.",
+                reply_markup=get_main_menu(),
+            )
 
     elif query_data == "rifa_inscrever":
         if not is_user_subscribed_to_rifa(user_id):
             subscribe_user_to_rifa(user_id, username)
-            await query.message.edit_text("✅ Você foi inscrito(a) para receber notificações da rifa!", reply_markup=get_main_menu())
+            await query.message.edit_text(
+                "✅ Você foi inscrito(a) para receber notificações da rifa!",
+                reply_markup=get_main_menu(),
+            )
         else:
-            await query.message.edit_text("Você já está inscrito(a) para receber notificações da rifa.", reply_markup=get_main_menu())
+            await query.message.edit_text(
+                "Você já está inscrito(a) para receber notificações da rifa.",
+                reply_markup=get_main_menu(),
+            )
 
     elif query_data == "rifa_cancelar":
         if is_user_subscribed_to_rifa(user_id):
             unsubscribe_user_from_rifa(user_id)
-            await query.message.edit_text("❌ Você cancelou as notificações da rifa.", reply_markup=get_main_menu())
+            await query.message.edit_text(
+                "❌ Você cancelou as notificações da rifa.",
+                reply_markup=get_main_menu(),
+            )
         else:
-            await query.message.edit_text("Você não está inscrito(a) para receber notificações da rifa.", reply_markup=get_main_menu())
+            await query.message.edit_text(
+                "Você não está inscrito(a) para receber notificações da rifa.",
+                reply_markup=get_main_menu(),
+            )
 
     elif query_data == "admin_config_rifa":
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="🔗 Definir Link da Rifa", callback_data="admin_set_rifa_link")],
-                [InlineKeyboardButton(text="📝 Definir Mensagem da Rifa", callback_data="admin_set_rifa_message")],
-                [InlineKeyboardButton(text="🔙 Voltar ao Admin", callback_data="admin_panel")],
+                [
+                    InlineKeyboardButton(
+                        text="🔗 Definir Link da Rifa",
+                        callback_data="admin_set_rifa_link",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="📝 Definir Mensagem da Rifa",
+                        callback_data="admin_set_rifa_message",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🔙 Voltar ao Admin", callback_data="admin_panel"
+                    )
+                ],
             ]
         )
         await query.message.edit_text("Configurações da Rifa:", reply_markup=keyboard)
@@ -681,14 +754,29 @@ async def process_callback(query: types.CallbackQuery, state: FSMContext):
 
     elif query_data == "admin_set_rifa_message":
         await state.set_state(AdminStates.configurando_mensagem_rifa)
-        await query.message.edit_text("Por favor, envie a nova mensagem para a rifa (pode incluir foto/vídeo):")
+        await query.message.edit_text(
+            "Por favor, envie a nova mensagem para a rifa (pode incluir foto/vídeo):"
+        )
 
     elif query_data == "admin_programar_msg":
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="Para Usuários", callback_data="admin_programar_msg_usuarios")],
-                [InlineKeyboardButton(text="Para Grupos", callback_data="admin_programar_msg_grupos")],
-                [InlineKeyboardButton(text="🔙 Voltar ao Admin", callback_data="admin_panel")],
+                [
+                    InlineKeyboardButton(
+                        text="Para Usuários",
+                        callback_data="admin_programar_msg_usuarios",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="Para Grupos", callback_data="admin_programar_msg_grupos"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🔙 Voltar ao Admin", callback_data="admin_panel"
+                    )
+                ],
             ]
         )
         await query.message.edit_text("Programar Mensagem:", reply_markup=keyboard)
@@ -696,8 +784,16 @@ async def process_callback(query: types.CallbackQuery, state: FSMContext):
     elif query_data == "admin_config":
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="Gerenciar Grupos", callback_data="admin_gerenciar_grupos")],
-                [InlineKeyboardButton(text="🔙 Voltar ao Admin", callback_data="admin_panel")],
+                [
+                    InlineKeyboardButton(
+                        text="Gerenciar Grupos", callback_data="admin_gerenciar_grupos"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🔙 Voltar ao Admin", callback_data="admin_panel"
+                    )
+                ],
             ]
         )
         await query.message.edit_text("Configurações Gerais:", reply_markup=keyboard)
@@ -705,20 +801,47 @@ async def process_callback(query: types.CallbackQuery, state: FSMContext):
     elif query_data == "admin_programar_msg_usuarios":
         await state.set_state(AdminStates.aguardando_mensagem_programada)
         await state.update_data(target_type="users")
-        await query.message.edit_text("Por favor, envie a mensagem que deseja programar para os usuários (pode incluir foto/vídeo):")
+        await query.message.edit_text(
+            "Por favor, envie a mensagem que deseja programar para os usuários (pode incluir foto/vídeo):"
+        )
 
     elif query_data == "admin_programar_msg_grupos":
         grupos = obter_grupos_gerenciados()
         if not grupos:
-            await query.message.edit_text("Nenhum grupo gerenciado encontrado. Por favor, adicione o bot a um grupo e use /start nele para que ele seja registrado.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Voltar ao Admin", callback_data="admin_panel")]]))
+            await query.message.edit_text(
+                "Nenhum grupo gerenciado encontrado. Por favor, adicione o bot a um grupo e use /start nele para que ele seja registrado.",
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="🔙 Voltar ao Admin", callback_data="admin_panel"
+                            )
+                        ]
+                    ]
+                ),
+            )
             return
 
         keyboard_buttons = []
         for grupo in grupos:
-            keyboard_buttons.append([InlineKeyboardButton(text=grupo[2], callback_data=f"select_group_{grupo[1]}")])
-        keyboard_buttons.append([InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_programar_msg")])
+            keyboard_buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text=grupo[2], callback_data=f"select_group_{grupo[1]}"
+                    )
+                ]
+            )
+        keyboard_buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="🔙 Voltar", callback_data="admin_programar_msg"
+                )
+            ]
+        )
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-        await query.message.edit_text("Selecione o(s) grupo(s) para esta mensagem:", reply_markup=keyboard)
+        await query.message.edit_text(
+            "Selecione o(s) grupo(s) para esta mensagem:", reply_markup=keyboard
+        )
 
     elif query_data.startswith("select_group_"):
         group_id = query.data.split("_")[2]
@@ -727,23 +850,51 @@ async def process_callback(query: types.CallbackQuery, state: FSMContext):
         if group_id not in selected_groups:
             selected_groups.append(group_id)
             await state.update_data(selected_groups=selected_groups)
-            await query.message.edit_text(f"Grupo {group_id} selecionado. Envie a mensagem ou selecione mais grupos.")
+            await query.message.edit_text(
+                f"Grupo {group_id} selecionado. Envie a mensagem ou selecione mais grupos."
+            )
         else:
-            await query.message.edit_text(f"Grupo {group_id} já selecionado. Envie a mensagem ou selecione mais grupos.")
+            await query.message.edit_text(
+                f"Grupo {group_id} já selecionado. Envie a mensagem ou selecione mais grupos."
+            )
         await state.set_state(AdminStates.aguardando_mensagem_programada)
         await state.update_data(target_type="groups")
 
     elif query_data == "admin_gerenciar_grupos":
         grupos = obter_grupos_gerenciados()
         if not grupos:
-            await query.message.edit_text("Nenhum grupo gerenciado encontrado.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Voltar ao Admin", callback_data="admin_panel")]]))
+            await query.message.edit_text(
+                "Nenhum grupo gerenciado encontrado.",
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="🔙 Voltar ao Admin", callback_data="admin_panel"
+                            )
+                        ]
+                    ]
+                ),
+            )
             return
 
         keyboard_buttons = []
         for grupo in grupos:
             status = "Ativo" if grupo[4] else "Inativo"
-            keyboard_buttons.append([InlineKeyboardButton(text=f"{grupo[2]} ({status})", callback_data=f"manage_group_{grupo[1]}")])
-        keyboard_buttons.append([InlineKeyboardButton(text="🔙 Voltar ao Admin", callback_data="admin_panel")])
+            keyboard_buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"{grupo[2]} ({status})",
+                        callback_data=f"manage_group_{grupo[1]}",
+                    )
+                ]
+            )
+        keyboard_buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="🔙 Voltar ao Admin", callback_data="admin_panel"
+                )
+            ]
+        )
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
         await query.message.edit_text("Gerenciar Grupos:", reply_markup=keyboard)
 
@@ -752,25 +903,64 @@ async def process_callback(query: types.CallbackQuery, state: FSMContext):
         # Aqui você pode adicionar opções para ativar/desativar o grupo, remover, etc.
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="Ativar/Desativar", callback_data=f"toggle_group_status_{group_id}")],
-                [InlineKeyboardButton(text="Remover Grupo", callback_data=f"remove_group_{group_id}")],
-                [InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_gerenciar_grupos")],
+                [
+                    InlineKeyboardButton(
+                        text="Ativar/Desativar",
+                        callback_data=f"toggle_group_status_{group_id}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="Remover Grupo", callback_data=f"remove_group_{group_id}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🔙 Voltar", callback_data="admin_gerenciar_grupos"
+                    )
+                ],
             ]
         )
-        await query.message.edit_text(f"Opções para o grupo {group_id}:", reply_markup=keyboard)
+        await query.message.edit_text(
+            f"Opções para o grupo {group_id}:", reply_markup=keyboard
+        )
 
     elif query_data.startswith("toggle_group_status_"):
         group_id = query.data.split("_")[2]
         # Lógica para alternar o status do grupo no banco de dados
-        await query.message.edit_text(f"Status do grupo {group_id} alternado.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_gerenciar_grupos")]]))
+        await query.message.edit_text(
+            f"Status do grupo {group_id} alternado.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="🔙 Voltar", callback_data="admin_gerenciar_grupos"
+                        )
+                    ]
+                ]
+            ),
+        )
 
     elif query_data.startswith("remove_group_"):
         group_id = query.data.split("_")[2]
         # Lógica para remover o grupo do banco de dados
-        await query.message.edit_text(f"Grupo {group_id} removido.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_gerenciar_grupos")]]))
+        await query.message.edit_text(
+            f"Grupo {group_id} removido.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="🔙 Voltar", callback_data="admin_gerenciar_grupos"
+                        )
+                    ]
+                ]
+            ),
+        )
 
     elif query_data == "voltar_menu":
-        await query.message.edit_text("Selecione uma opção abaixo para começar:", reply_markup=get_main_menu())
+        await query.message.edit_text(
+            "Selecione uma opção abaixo para começar:", reply_markup=get_main_menu()
+        )
 
 
 @dp.message(AdminStates.configurando_rifa)
@@ -779,12 +969,13 @@ async def process_set_rifa_link(message: types.Message, state: FSMContext):
         await message.reply("❌ Você não tem permissão para realizar esta ação.")
         await state.clear()
         return
-    
+
     rifa_link = message.text
     set_rifa_config("link_rifa", rifa_link)
     await message.reply(f"✅ Link da rifa atualizado para: {rifa_link}")
     await state.clear()
-    await admin_panel(message, state) # Voltar ao painel admin
+    await admin_panel(message, state)  # Voltar ao painel admin
+
 
 @dp.message(AdminStates.configurando_mensagem_rifa)
 async def process_set_rifa_message(message: types.Message, state: FSMContext):
@@ -795,22 +986,23 @@ async def process_set_rifa_message(message: types.Message, state: FSMContext):
 
     mensagem = message.caption if message.caption else message.text
     media_file_id = None
-    tipo = 'text'
+    tipo = "text"
 
     if message.photo:
         media_file_id = message.photo[-1].file_id
-        tipo = 'photo'
+        tipo = "photo"
     elif message.video:
         media_file_id = message.video.file_id
-        tipo = 'video'
-    
+        tipo = "video"
+
     set_rifa_config("mensagem_rifa_texto", mensagem)
     set_rifa_config("mensagem_rifa_tipo", tipo)
     set_rifa_config("mensagem_rifa_media_id", media_file_id if media_file_id else "")
 
     await message.reply("✅ Mensagem da rifa atualizada com sucesso!")
     await state.clear()
-    await admin_panel(message, state) # Voltar ao painel admin
+    await admin_panel(message, state)  # Voltar ao painel admin
+
 
 @dp.message(AdminStates.aguardando_mensagem_programada)
 async def process_programar_mensagem(message: types.Message, state: FSMContext):
@@ -821,28 +1013,42 @@ async def process_programar_mensagem(message: types.Message, state: FSMContext):
 
     mensagem_texto = message.caption if message.caption else message.text
     media_file_id = None
-    tipo = 'text'
+    tipo = "text"
 
     if message.photo:
         media_file_id = message.photo[-1].file_id
-        tipo = 'photo'
+        tipo = "photo"
     elif message.video:
         media_file_id = message.video.file_id
-        tipo = 'video'
-    
-    await state.update_data(mensagem_texto=mensagem_texto, media_file_id=media_file_id, tipo_mensagem=tipo)
+        tipo = "video"
+
+    await state.update_data(
+        mensagem_texto=mensagem_texto, media_file_id=media_file_id, tipo_mensagem=tipo
+    )
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"{h}:00", callback_data=f"set_time_{h}") for h in range(8, 24, 2)],
-            [InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_programar_msg")],
+            [
+                InlineKeyboardButton(text=f"{h}:00", callback_data=f"set_time_{h}")
+                for h in range(8, 24, 2)
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔙 Voltar", callback_data="admin_programar_msg"
+                )
+            ],
         ]
     )
     await state.set_state(AdminStates.aguardando_horario_mensagem_programada)
-    await message.reply("Agora, selecione o horário para enviar a mensagem:", reply_markup=keyboard)
+    await message.reply(
+        "Agora, selecione o horário para enviar a mensagem:", reply_markup=keyboard
+    )
+
 
 @dp.callback_query(lambda query: query.data.startswith("set_time_"))
-async def process_set_time_programar_mensagem(query: types.CallbackQuery, state: FSMContext):
+async def process_set_time_programar_mensagem(
+    query: types.CallbackQuery, state: FSMContext
+):
     logging.info(f"Callback 'set_time_' received. Query data: {query.data}")
     await query.answer()
     horario = query.data.split("_")[1]
@@ -858,14 +1064,24 @@ async def process_set_time_programar_mensagem(query: types.CallbackQuery, state:
             [InlineKeyboardButton(text="Sexta", callback_data="set_days_5")],
             [InlineKeyboardButton(text="Sábado", callback_data="set_days_6")],
             [InlineKeyboardButton(text="Domingo", callback_data="set_days_0")],
-            [InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_programar_msg")],
+            [
+                InlineKeyboardButton(
+                    text="🔙 Voltar", callback_data="admin_programar_msg"
+                )
+            ],
         ]
     )
     await state.set_state(AdminStates.aguardando_dias_semana_mensagem_programada)
-    await query.message.edit_text("Selecione os dias da semana para a mensagem (ou 'Todos os Dias'):", reply_markup=keyboard)
+    await query.message.edit_text(
+        "Selecione os dias da semana para a mensagem (ou 'Todos os Dias'):",
+        reply_markup=keyboard,
+    )
+
 
 @dp.callback_query(lambda query: query.data.startswith("set_days_"))
-async def process_set_days_programar_mensagem(query: types.CallbackQuery, state: FSMContext):
+async def process_set_days_programar_mensagem(
+    query: types.CallbackQuery, state: FSMContext
+):
     await query.answer()
     dias_semana_raw = query.data.split("_")[1]
     dias_semana = None
@@ -881,12 +1097,32 @@ async def process_set_days_programar_mensagem(query: types.CallbackQuery, state:
     selected_groups = data.get("selected_groups", [])
 
     if target_type == "users":
-        salvar_mensagem_programada(mensagem_texto, horario_programado, dias_semana, None, tipo_mensagem, media_file_id)
-        await query.message.edit_text("✅ Mensagem programada para usuários com sucesso!", reply_markup=get_main_menu())
+        salvar_mensagem_programada(
+            mensagem_texto,
+            horario_programado,
+            dias_semana,
+            None,
+            tipo_mensagem,
+            media_file_id,
+        )
+        await query.message.edit_text(
+            "✅ Mensagem programada para usuários com sucesso!",
+            reply_markup=get_main_menu(),
+        )
     elif target_type == "groups":
         for group_id in selected_groups:
-            salvar_mensagem_programada(mensagem_texto, horario_programado, dias_semana, group_id, tipo_mensagem, media_file_id)
-        await query.message.edit_text("✅ Mensagem programada para os grupos selecionados com sucesso!", reply_markup=get_main_menu())
+            salvar_mensagem_programada(
+                mensagem_texto,
+                horario_programado,
+                dias_semana,
+                group_id,
+                tipo_mensagem,
+                media_file_id,
+            )
+        await query.message.edit_text(
+            "✅ Mensagem programada para os grupos selecionados com sucesso!",
+            reply_markup=get_main_menu(),
+        )
 
     await state.clear()
 
@@ -899,5 +1135,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
