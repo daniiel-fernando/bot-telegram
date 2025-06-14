@@ -51,6 +51,12 @@ class AdminStates(StatesGroup):
     programando_mensagem_horario = State()
     selecionando_grupos_para_mensagem = State()
     programando_mensagem_horario_grupos_especificos = State()
+    configurando_rifa = State()
+    configurando_mensagem_rifa = State()
+    aguardando_mensagem_programada = State()
+    aguardando_horario_mensagem_programada = State()
+    aguardando_dias_semana_mensagem_programada = State()
+    selecionando_tipo_mensagem_programada = State()
 
 
 # Configuração do banco de dados
@@ -68,6 +74,8 @@ def init_db():
             dias_semana TEXT,
             ativo BOOLEAN DEFAULT 1,
             grupo_id TEXT,
+            tipo TEXT DEFAULT 'text', -- 'text' ou 'photo'
+            media_file_id TEXT, -- ID da foto/vídeo no Telegram
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """
@@ -113,6 +121,27 @@ def init_db():
     """
     )
 
+    # Nova tabela para configurações da rifa
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rifa_configuracoes (
+            chave TEXT PRIMARY KEY,
+            valor TEXT NOT NULL
+        )
+    """
+    )
+
+    # Nova tabela para inscritos na rifa
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rifa_inscritos (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """
+    )
+
     conn.commit()
     conn.close()
 
@@ -150,6 +179,71 @@ HORARIOS_DISPONIVEIS = [
 
 # ID da vendedora (deve ser configurado)
 VENDEDORA_ID = os.getenv("VENDEDORA_ID", "123456789")  # Substitua pelo ID real
+
+
+# Funções de utilidade para o banco de dados
+def get_db_connection():
+    return sqlite3.connect("bot_database.db")
+
+def get_config(chave):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT valor FROM configuracoes WHERE chave = ?", (chave,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
+
+def set_config(chave, valor):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES (?, ?)", (chave, valor))
+    conn.commit()
+    conn.close()
+
+def get_rifa_config(chave):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT valor FROM rifa_configuracoes WHERE chave = ?", (chave,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
+
+def set_rifa_config(chave, valor):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO rifa_configuracoes (chave, valor) VALUES (?, ?)", (chave, valor))
+    conn.commit()
+    conn.close()
+
+def is_user_subscribed_to_rifa(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM rifa_inscritos WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None
+
+def subscribe_user_to_rifa(user_id, username):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO rifa_inscritos (user_id, username) VALUES (?, ?)", (user_id, username))
+    conn.commit()
+    conn.close()
+
+def unsubscribe_user_from_rifa(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM rifa_inscritos WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def get_all_rifa_subscribers():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id FROM rifa_inscritos")
+    subscribers = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return subscribers
 
 
 # Função para verificar se o bot é admin de um grupo
@@ -192,16 +286,16 @@ def obter_grupos_gerenciados():
 
 
 # Função para salvar mensagem programada
-def salvar_mensagem_programada(mensagem, horario, dias_semana=None, grupo_id=None):
+def salvar_mensagem_programada(mensagem, horario, dias_semana=None, grupo_id=None, tipo='text', media_file_id=None):
     conn = sqlite3.connect("bot_database.db")
     cursor = conn.cursor()
 
     cursor.execute(
         """
-        INSERT INTO mensagens_programadas (mensagem, horario, dias_semana, grupo_id, ativo)
-        VALUES (?, ?, ?, ?, 1)
+        INSERT INTO mensagens_programadas (mensagem, horario, dias_semana, grupo_id, ativo, tipo, media_file_id)
+        VALUES (?, ?, ?, ?, 1, ?, ?)
     """,
-        (mensagem, horario, dias_semana, grupo_id),
+        (mensagem, horario, dias_semana, grupo_id, tipo, media_file_id),
     )
 
     mensagem_id = cursor.lastrowid
@@ -224,9 +318,14 @@ def obter_mensagens_programadas():
 
 
 # Função para enviar mensagem para grupo
-async def enviar_mensagem_grupo(grupo_id, mensagem):
+async def enviar_mensagem_grupo(grupo_id, mensagem, tipo='text', media_file_id=None):
     try:
-        await bot.send_message(grupo_id, mensagem, parse_mode="Markdown")
+        if tipo == 'photo' and media_file_id:
+            await bot.send_photo(chat_id=grupo_id, photo=media_file_id, caption=mensagem, parse_mode="Markdown")
+        elif tipo == 'video' and media_file_id:
+            await bot.send_video(chat_id=grupo_id, video=media_file_id, caption=mensagem, parse_mode="Markdown")
+        else:
+            await bot.send_message(grupo_id, mensagem, parse_mode="Markdown")
         logging.info(f"Mensagem enviada para grupo {grupo_id}")
         return True
     except Exception as e:
@@ -234,53 +333,7 @@ async def enviar_mensagem_grupo(grupo_id, mensagem):
         return False
 
 
-# Função para processar mensagens programadas
-async def processar_mensagens_programadas():
-    """Função que roda em background para enviar mensagens programadas"""
-    while True:
-        try:
-            agora = datetime.now()
-            hora_atual = agora.strftime("%H:%M")
-            dia_semana = agora.weekday()  # 0 = segunda, 6 = domingo
-
-            mensagens = obter_mensagens_programadas()
-
-            for msg in mensagens:
-                (
-                    msg_id,
-                    mensagem,
-                    horario,
-                    dias_semana_str,
-                    ativo,
-                    grupo_id,
-                    created_at,
-                ) = msg
-
-                # Verificar se é a hora certa
-                if horario == hora_atual:
-                    # Verificar se é o dia da semana correto (se especificado)
-                    if dias_semana_str:
-                        dias_permitidos = [int(d) for d in dias_semana_str.split(",")]
-                        if dia_semana not in dias_permitidos:
-                            continue
-
-                    # Enviar mensagem
-                    if grupo_id:
-                        await enviar_mensagem_grupo(grupo_id, mensagem)
-                    else:
-                        # Se não tem grupo específico, enviar para todos os grupos
-                        grupos = obter_grupos_gerenciados()
-                        for grupo in grupos:
-                            await enviar_mensagem_grupo(
-                                grupo[1], mensagem
-                            )  # grupo[1] é o grupo_id
-
-            # Aguardar 60 segundos antes da próxima verificação
-            await asyncio.sleep(60)
-
-        except Exception as e:
-            logging.error(f"Erro no processamento de mensagens programadas: {e}")
-            await asyncio.sleep(60)
+# Função para processar mensagens programadas (removida para notification_manager.py)
 
 
 # Função para criar o menu principal
@@ -293,7 +346,8 @@ def get_main_menu():
                     text="👥 Grupo de Prévias", callback_data="grupo_previas"
                 )
             ],
-            [InlineKeyboardButton(text="� Contato", callback_data="contato")],
+            [InlineKeyboardButton(text="🎟️ Rifa", callback_data="rifa")],
+            [InlineKeyboardButton(text="📞 Contato", callback_data="contato")],
         ]
     )
     return keyboard
@@ -503,7 +557,12 @@ async def admin_panel(message: types.Message, state: FSMContext):
                 InlineKeyboardButton(
                     text="⚙️ Configurações", callback_data="admin_config"
                 )
-            ],  # Futuro
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎟️ Configurar Rifa", callback_data="admin_config_rifa"
+                )
+            ],
         ]
     )
     await message.reply("Painel Administrativo:", reply_markup=keyboard)
@@ -529,421 +588,316 @@ async def process_callback(query: types.CallbackQuery, state: FSMContext):
         await query.message.edit_text(
             "Selecione a data desejada:", reply_markup=get_calendar_keyboard()
         )
-        await state.set_state(SelecaoHorarioStates.escolhendo_data)
+
+    elif query_data.startswith("data_"):
+        data_selecionada = query_data.split("_")[1]
+        servico_selecionado = (await state.get_data()).get("servico_selecionado")
+        await state.update_data(data_selecionada=data_selecionada)
+        await query.message.edit_text(
+            f"Data selecionada: {data_selecionada}\nSelecione o horário:",
+            reply_markup=get_horarios_keyboard(data_selecionada, servico_selecionado),
+        )
 
     elif query_data.startswith("cal_"):
         _, year, month = query_data.split("_")
-        await query.message.edit_reply_markup(
-            reply_markup=get_calendar_keyboard(int(year), int(month))
-        )
-
-    elif query_data.startswith("data_"):
-        data_selecionada_str = query_data.split("_")[1]
-        # CORREÇÃO APLICADA AQUI:
-        await state.update_data(data_selecionada=data_selecionada_str)
-        user_data = await state.get_data()
-        servico = user_data.get("servico_selecionado")
-
-        if not servico:
-            await query.message.edit_text(
-                "❌ Ocorreu um erro. Por favor, comece o agendamento novamente.",
-                reply_markup=get_main_menu(),
-            )
-            await state.clear()
-            return
-
         await query.message.edit_text(
-            f"📅 Você selecionou a data: {data_selecionada_str}\nEscolha um horário disponível para o serviço de {servico.replace('h', ' hora').replace('pernoite', 'Pernoite')}:",
-            reply_markup=get_horarios_keyboard(data_selecionada_str, servico),
+            "Selecione a data desejada:",
+            reply_markup=get_calendar_keyboard(int(year), int(month)),
         )
-        await state.set_state(SelecaoHorarioStates.escolhendo_horario)
 
     elif query_data.startswith("confirmar_"):
         _, data, horario, servico = query_data.split("_")
+        user_id = query.from_user.id
+        username = query.from_user.username or query.from_user.first_name
 
-        user_data = await state.get_data()
-
-        # Construir a mensagem para o WhatsApp
-        mensagem_whatsapp = f"Olá! Gostaria de agendar um atendimento de {servico.replace('h', ' hora').replace('pernoite', 'Pernoite')} para o dia {data} às {horario}."
-
-        # Link do WhatsApp
-        whatsapp_link = f"https://wa.me/{WHATSAPP_NUMBER}?text={mensagem_whatsapp}"
-
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Confirmar e Pagar", url=whatsapp_link)],
-                [
-                    InlineKeyboardButton(
-                        text="🔙 Voltar ao Menu Principal", callback_data="voltar_menu"
-                    )
-                ],
-            ]
-        )
-
-        await query.message.edit_text(
-            f"🎉 Agendamento quase concluído!\n\n"
-            f"Serviço: {servico.replace('h', ' hora').replace('pernoite', 'Pernoite')}\n"
+        # Aqui você integraria com o Mercado Pago ou outro sistema de pagamento
+        # Por enquanto, vamos simular um agendamento
+        mensagem_confirmacao = (
+            f"✅ Agendamento Confirmado!\n\n"
+            f"Serviço: {servico}\n"
             f"Data: {data}\n"
             f"Horário: {horario}\n\n"
-            f'Clique em "Confirmar e Pagar" para finalizar o agendamento e ser redirecionado(a) para o WhatsApp para combinar o pagamento.',
-            reply_markup=keyboard,
+            f"Em breve entrarei em contato para finalizar os detalhes."
         )
-        await state.clear()  # Limpar o estado após a confirmação
+        await query.message.edit_text(mensagem_confirmacao)
+
+        # Notificar a vendedora
+        await notificar_vendedora(
+            f"Novo agendamento de {username} ({user_id}): {servico} em {data} às {horario}"
+        )
 
     elif query_data == "grupo_previas":
-        # Aqui você pode adicionar o link para o grupo de prévias
         await query.message.edit_text(
-            "Acesse nosso grupo de prévias exclusivo para conteúdos especiais! [Link do Grupo](https://t.me/+FgJVW0A6p0wzMGU5)",
-            parse_mode="Markdown",
-            reply_markup=get_main_menu(),
+            "Acesse nosso grupo de prévias aqui: [Link do Grupo](https://t.me/seu_grupo_de_previas)"
         )
 
     elif query_data == "contato":
-        # Aqui você pode adicionar as informações de contato
         await query.message.edit_text(
-            f"Para falar diretamente comigo, entre em contato via WhatsApp: [Clique aqui](https://wa.me/{+5579991196359})",
-            parse_mode="Markdown",
-            reply_markup=get_main_menu(),
+            f"Entre em contato via WhatsApp: [Clique aqui](https://wa.me/{WHATSAPP_NUMBER})"
         )
 
-    elif query_data == "voltar_menu":
-        await query.message.edit_text(
-            "Selecione uma opção abaixo para começar:", reply_markup=get_main_menu()
-        )
-
-    elif query_data == "admin_programar_msg":
-        await query.message.edit_text(
-            "Envie a mensagem que deseja programar:",
-            reply_markup=InlineKeyboardMarkup(
+    elif query_data == "rifa":
+        rifa_link = get_rifa_config("link_rifa")
+        if rifa_link:
+            keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="🔙 Voltar", callback_data="admin_panel"
-                        )
-                    ]
+                    [InlineKeyboardButton(text="Acessar Rifa", url=rifa_link)],
+                    [InlineKeyboardButton(text="Inscrever-me para Notificações", callback_data="rifa_inscrever")],
+                    [InlineKeyboardButton(text="Cancelar Notificações", callback_data="rifa_cancelar")],
+                    [InlineKeyboardButton(text="🔙 Voltar", callback_data="voltar_menu")],
                 ]
-            ),
-        )
-        await state.set_state(AdminStates.programando_mensagem)
+            )
+            await query.message.edit_text("🎉 Participe da nossa rifa!", reply_markup=keyboard)
+        else:
+            await query.message.edit_text("Desculpe, o link da rifa ainda não foi configurado.", reply_markup=get_main_menu())
 
-    elif query_data == "admin_panel":
+    elif query_data == "rifa_inscrever":
+        if not is_user_subscribed_to_rifa(user_id):
+            subscribe_user_to_rifa(user_id, username)
+            await query.message.edit_text("✅ Você foi inscrito(a) para receber notificações da rifa!", reply_markup=get_main_menu())
+        else:
+            await query.message.edit_text("Você já está inscrito(a) para receber notificações da rifa.", reply_markup=get_main_menu())
+
+    elif query_data == "rifa_cancelar":
+        if is_user_subscribed_to_rifa(user_id):
+            unsubscribe_user_from_rifa(user_id)
+            await query.message.edit_text("❌ Você cancelou as notificações da rifa.", reply_markup=get_main_menu())
+        else:
+            await query.message.edit_text("Você não está inscrito(a) para receber notificações da rifa.", reply_markup=get_main_menu())
+
+    elif query_data == "admin_config_rifa":
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="📝 Programar Mensagem",
-                        callback_data="admin_programar_msg",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="⚙️ Configurações", callback_data="admin_config"
-                    )
-                ],
+                [InlineKeyboardButton(text="🔗 Definir Link da Rifa", callback_data="admin_set_rifa_link")],
+                [InlineKeyboardButton(text="📝 Definir Mensagem da Rifa", callback_data="admin_set_rifa_message")],
+                [InlineKeyboardButton(text="🔙 Voltar ao Admin", callback_data="admin_panel")],
             ]
         )
-        await query.message.edit_text("Painel Administrativo:", reply_markup=keyboard)
+        await query.message.edit_text("Configurações da Rifa:", reply_markup=keyboard)
+
+    elif query_data == "admin_set_rifa_link":
+        await state.set_state(AdminStates.configurando_rifa)
+        await query.message.edit_text("Por favor, envie o novo link da rifa:")
+
+    elif query_data == "admin_set_rifa_message":
+        await state.set_state(AdminStates.configurando_mensagem_rifa)
+        await query.message.edit_text("Por favor, envie a nova mensagem para a rifa (pode incluir foto/vídeo):")
+
+    elif query_data == "admin_programar_msg":
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="Para Usuários", callback_data="admin_programar_msg_usuarios")],
+                [InlineKeyboardButton(text="Para Grupos", callback_data="admin_programar_msg_grupos")],
+                [InlineKeyboardButton(text="🔙 Voltar ao Admin", callback_data="admin_panel")],
+            ]
+        )
+        await query.message.edit_text("Programar Mensagem:", reply_markup=keyboard)
 
     elif query_data == "admin_config":
-        await query.message.edit_text(
-            "Configurações (em desenvolvimento).",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="🔙 Voltar", callback_data="admin_panel"
-                        )
-                    ]
-                ]
-            ),
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="Gerenciar Grupos", callback_data="admin_gerenciar_grupos")],
+                [InlineKeyboardButton(text="🔙 Voltar ao Admin", callback_data="admin_panel")],
+            ]
         )
+        await query.message.edit_text("Configurações Gerais:", reply_markup=keyboard)
+
+    elif query_data == "admin_programar_msg_usuarios":
+        await state.set_state(AdminStates.aguardando_mensagem_programada)
+        await state.update_data(target_type="users")
+        await query.message.edit_text("Por favor, envie a mensagem que deseja programar para os usuários (pode incluir foto/vídeo):")
+
+    elif query_data == "admin_programar_msg_grupos":
+        grupos = obter_grupos_gerenciados()
+        if not grupos:
+            await query.message.edit_text("Nenhum grupo gerenciado encontrado. Por favor, adicione o bot a um grupo e use /start nele para que ele seja registrado.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Voltar ao Admin", callback_data="admin_panel")]]))
+            return
+
+        keyboard_buttons = []
+        for grupo in grupos:
+            keyboard_buttons.append([InlineKeyboardButton(text=grupo[2], callback_data=f"select_group_{grupo[1]}")])
+        keyboard_buttons.append([InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_programar_msg")])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        await query.message.edit_text("Selecione o(s) grupo(s) para esta mensagem:", reply_markup=keyboard)
+
+    elif query_data.startswith("select_group_"):
+        group_id = query.data.split("_")[2]
+        current_data = await state.get_data()
+        selected_groups = current_data.get("selected_groups", [])
+        if group_id not in selected_groups:
+            selected_groups.append(group_id)
+            await state.update_data(selected_groups=selected_groups)
+            await query.message.edit_text(f"Grupo {group_id} selecionado. Envie a mensagem ou selecione mais grupos.")
+        else:
+            await query.message.edit_text(f"Grupo {group_id} já selecionado. Envie a mensagem ou selecione mais grupos.")
+        await state.set_state(AdminStates.aguardando_mensagem_programada)
+        await state.update_data(target_type="groups")
+
+    elif query_data == "admin_gerenciar_grupos":
+        grupos = obter_grupos_gerenciados()
+        if not grupos:
+            await query.message.edit_text("Nenhum grupo gerenciado encontrado.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Voltar ao Admin", callback_data="admin_panel")]]))
+            return
+
+        keyboard_buttons = []
+        for grupo in grupos:
+            status = "Ativo" if grupo[4] else "Inativo"
+            keyboard_buttons.append([InlineKeyboardButton(text=f"{grupo[2]} ({status})", callback_data=f"manage_group_{grupo[1]}")])
+        keyboard_buttons.append([InlineKeyboardButton(text="🔙 Voltar ao Admin", callback_data="admin_panel")])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        await query.message.edit_text("Gerenciar Grupos:", reply_markup=keyboard)
+
+    elif query_data.startswith("manage_group_"):
+        group_id = query.data.split("_")[2]
+        # Aqui você pode adicionar opções para ativar/desativar o grupo, remover, etc.
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="Ativar/Desativar", callback_data=f"toggle_group_status_{group_id}")],
+                [InlineKeyboardButton(text="Remover Grupo", callback_data=f"remove_group_{group_id}")],
+                [InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_gerenciar_grupos")],
+            ]
+        )
+        await query.message.edit_text(f"Opções para o grupo {group_id}:", reply_markup=keyboard)
+
+    elif query_data.startswith("toggle_group_status_"):
+        group_id = query.data.split("_")[2]
+        # Lógica para alternar o status do grupo no banco de dados
+        await query.message.edit_text(f"Status do grupo {group_id} alternado.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_gerenciar_grupos")]]))
+
+    elif query_data.startswith("remove_group_"):
+        group_id = query.data.split("_")[2]
+        # Lógica para remover o grupo do banco de dados
+        await query.message.edit_text(f"Grupo {group_id} removido.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_gerenciar_grupos")]]))
+
+    elif query_data == "voltar_menu":
+        await query.message.edit_text("Selecione uma opção abaixo para começar:", reply_markup=get_main_menu())
 
 
-@dp.message(AdminStates.programando_mensagem)
-async def receber_mensagem_programar(message: types.Message, state: FSMContext):
-    mensagem_para_programar = message.text
-    await state.update_data(mensagem_programada=mensagem_para_programar)
+@dp.message(AdminStates.configurando_rifa)
+async def process_set_rifa_link(message: types.Message, state: FSMContext):
+    if str(message.from_user.id) != VENDEDORA_ID:
+        await message.reply("❌ Você não tem permissão para realizar esta ação.")
+        await state.clear()
+        return
+    
+    rifa_link = message.text
+    set_rifa_config("link_rifa", rifa_link)
+    await message.reply(f"✅ Link da rifa atualizado para: {rifa_link}")
+    await state.clear()
+    await admin_panel(message, state) # Voltar ao painel admin
+
+@dp.message(AdminStates.configurando_mensagem_rifa)
+async def process_set_rifa_message(message: types.Message, state: FSMContext):
+    if str(message.from_user.id) != VENDEDORA_ID:
+        await message.reply("❌ Você não tem permissão para realizar esta ação.")
+        await state.clear()
+        return
+
+    mensagem = message.caption if message.caption else message.text
+    media_file_id = None
+    tipo = 'text'
+
+    if message.photo:
+        media_file_id = message.photo[-1].file_id
+        tipo = 'photo'
+    elif message.video:
+        media_file_id = message.video.file_id
+        tipo = 'video'
+    
+    set_rifa_config("mensagem_rifa_texto", mensagem)
+    set_rifa_config("mensagem_rifa_tipo", tipo)
+    set_rifa_config("mensagem_rifa_media_id", media_file_id if media_file_id else "")
+
+    await message.reply("✅ Mensagem da rifa atualizada com sucesso!")
+    await state.clear()
+    await admin_panel(message, state) # Voltar ao painel admin
+
+@dp.message(AdminStates.aguardando_mensagem_programada)
+async def process_programar_mensagem(message: types.Message, state: FSMContext):
+    if str(message.from_user.id) != VENDEDORA_ID:
+        await message.reply("❌ Você não tem permissão para realizar esta ação.")
+        await state.clear()
+        return
+
+    mensagem_texto = message.caption if message.caption else message.text
+    media_file_id = None
+    tipo = 'text'
+
+    if message.photo:
+        media_file_id = message.photo[-1].file_id
+        tipo = 'photo'
+    elif message.video:
+        media_file_id = message.video.file_id
+        tipo = 'video'
+    
+    await state.update_data(mensagem_texto=mensagem_texto, media_file_id=media_file_id, tipo_mensagem=tipo)
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Enviar para todos os grupos gerenciados",
-                    callback_data="programar_msg_todos_grupos",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="Escolher grupos específicos",
-                    callback_data="programar_msg_escolher_grupos",
-                )
-            ],
-            [InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_panel")],
+            [InlineKeyboardButton(text=f"{h}:00", callback_data=f"set_time_{h}") for h in range(8, 24, 2)],
+            [InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_programar_msg")],
         ]
     )
-    await message.reply(
-        "Mensagem recebida. Agora, escolha onde enviar e quando:", reply_markup=keyboard
-    )
-    await state.set_state(
-        AdminStates.configurando_grupo
-    )  # Mudar para um estado mais apropriado, talvez para escolher horário e grupos
+    await state.set_state(AdminStates.aguardando_horario_mensagem_programada)
+    await message.reply("Agora, selecione o horário para enviar a mensagem:", reply_markup=keyboard)
 
-
-@dp.callback_query(AdminStates.configurando_grupo)
-async def configurar_programacao_mensagem(
-    query: types.CallbackQuery, state: FSMContext
-):
-    query_data = query.data
+@dp.callback_query(lambda query: query.data.startswith("set_time_"))
+async def process_set_time_programar_mensagem(query: types.CallbackQuery, state: FSMContext):
+    logging.info(f"Callback 'set_time_' received. Query data: {query.data}")
     await query.answer()
+    horario = query.data.split("_")[1]
+    await state.update_data(horario_programado=horario)
 
-    if query_data == "programar_msg_todos_grupos":
-        user_data = await state.get_data()
-        mensagem = user_data.get("mensagem_programada")
-
-        # Solicitar horário
-        await query.message.edit_text(
-            "Por favor, envie o horário (HH:MM) para a mensagem programada (ex: 10:30):"
-        )
-        await state.set_state(
-            AdminStates.programando_mensagem_horario
-        )  # Novo estado para receber o horário
-
-    elif query_data == "programar_msg_escolher_grupos":
-        grupos = obter_grupos_gerenciados()
-        if not grupos:
-            await query.message.edit_text(
-                "Nenhum grupo gerenciado encontrado. Por favor, adicione grupos primeiro.",
-                reply_markup=InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            InlineKeyboardButton(
-                                text="🔙 Voltar", callback_data="admin_panel"
-                            )
-                        ]
-                    ]
-                ),
-            )
-            await state.clear()
-            return
-
-        keyboard_grupos = []
-        for grupo in grupos:
-            keyboard_grupos.append(
-                [
-                    InlineKeyboardButton(
-                        text=grupo[2], callback_data=f"selecionar_grupo_{grupo[1]}"
-                    )
-                ]
-            )  # grupo[2] é o nome, grupo[1] é o ID
-
-        keyboard_grupos.append(
-            [InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_panel")]
-        )
-
-        await query.message.edit_text(
-            "Selecione os grupos para enviar a mensagem:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_grupos),
-        )
-        await state.set_state(
-            AdminStates.selecionando_grupos_para_mensagem
-        )  # Novo estado para seleção de grupos
-
-    elif query_data == "admin_panel":
-        await state.clear()
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="📝 Programar Mensagem",
-                        callback_data="admin_programar_msg",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="⚙️ Configurações", callback_data="admin_config"
-                    )
-                ],
-            ]
-        )
-        await query.message.edit_text("Painel Administrativo:", reply_markup=keyboard)
-
-
-@dp.message(AdminStates.programando_mensagem_horario)
-async def receber_horario_programar(message: types.Message, state: FSMContext):
-    horario = message.text
-    # Validação simples de formato HH:MM
-    try:
-        datetime.strptime(horario, "%H:%M")
-    except ValueError:
-        await message.reply(
-            "Formato de horário inválido. Por favor, use HH:MM (ex: 10:30)."
-        )
-        return
-
-    user_data = await state.get_data()
-    mensagem = user_data.get("mensagem_programada")
-
-    # Por enquanto, salva sem dias da semana ou grupo específico
-    salvar_mensagem_programada(mensagem, horario)
-    await message.reply(
-        "Mensagem programada com sucesso para todos os grupos gerenciados neste horário!",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="🔙 Voltar ao Painel Admin", callback_data="admin_panel"
-                    )
-                ]
-            ]
-        ),
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Todos os Dias", callback_data="set_days_all")],
+            [InlineKeyboardButton(text="Segunda", callback_data="set_days_1")],
+            [InlineKeyboardButton(text="Terça", callback_data="set_days_2")],
+            [InlineKeyboardButton(text="Quarta", callback_data="set_days_3")],
+            [InlineKeyboardButton(text="Quinta", callback_data="set_days_4")],
+            [InlineKeyboardButton(text="Sexta", callback_data="set_days_5")],
+            [InlineKeyboardButton(text="Sábado", callback_data="set_days_6")],
+            [InlineKeyboardButton(text="Domingo", callback_data="set_days_0")],
+            [InlineKeyboardButton(text="🔙 Voltar", callback_data="admin_programar_msg")],
+        ]
     )
+    await state.set_state(AdminStates.aguardando_dias_semana_mensagem_programada)
+    await query.message.edit_text("Selecione os dias da semana para a mensagem (ou 'Todos os Dias'):", reply_markup=keyboard)
+
+@dp.callback_query(lambda query: query.data.startswith("set_days_"))
+async def process_set_days_programar_mensagem(query: types.CallbackQuery, state: FSMContext):
+    await query.answer()
+    dias_semana_raw = query.data.split("_")[1]
+    dias_semana = None
+    if dias_semana_raw != "all":
+        dias_semana = dias_semana_raw
+
+    data = await state.get_data()
+    mensagem_texto = data.get("mensagem_texto")
+    horario_programado = data.get("horario_programado")
+    tipo_mensagem = data.get("tipo_mensagem")
+    media_file_id = data.get("media_file_id")
+    target_type = data.get("target_type")
+    selected_groups = data.get("selected_groups", [])
+
+    if target_type == "users":
+        salvar_mensagem_programada(mensagem_texto, horario_programado, dias_semana, None, tipo_mensagem, media_file_id)
+        await query.message.edit_text("✅ Mensagem programada para usuários com sucesso!", reply_markup=get_main_menu())
+    elif target_type == "groups":
+        for group_id in selected_groups:
+            salvar_mensagem_programada(mensagem_texto, horario_programado, dias_semana, group_id, tipo_mensagem, media_file_id)
+        await query.message.edit_text("✅ Mensagem programada para os grupos selecionados com sucesso!", reply_markup=get_main_menu())
+
     await state.clear()
 
 
-@dp.callback_query(AdminStates.selecionando_grupos_para_mensagem)
-async def selecionar_grupos_para_mensagem(
-    query: types.CallbackQuery, state: FSMContext
-):
-    query_data = query.data
-    await query.answer()
-
-    if query_data.startswith("selecionar_grupo_"):
-        grupo_id_selecionado = query_data.split("_")[2]
-        user_data = await state.get_data()
-
-        # Adicionar o grupo selecionado à lista de grupos para a mensagem
-        grupos_selecionados = user_data.get("grupos_selecionados_msg", [])
-        if grupo_id_selecionado not in grupos_selecionados:
-            grupos_selecionados.append(grupo_id_selecionado)
-            await state.update_data(grupos_selecionados_msg=grupos_selecionados)
-            await query.message.edit_text(
-                f"Grupo {grupo_id_selecionado} adicionado. Selecione mais ou finalize:",
-                reply_markup=InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            InlineKeyboardButton(
-                                text="Finalizar seleção e programar",
-                                callback_data="finalizar_selecao_grupos",
-                            )
-                        ],
-                        [
-                            InlineKeyboardButton(
-                                text="🔙 Voltar", callback_data="admin_panel"
-                            )
-                        ],
-                    ]
-                ),
-            )
-        else:
-            await query.message.edit_text(
-                f"Grupo {grupo_id_selecionado} já selecionado. Selecione mais ou finalize:",
-                reply_markup=InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            InlineKeyboardButton(
-                                text="Finalizar seleção e programar",
-                                callback_data="finalizar_selecao_grupos",
-                            )
-                        ],
-                        [
-                            InlineKeyboardButton(
-                                text="🔙 Voltar", callback_data="admin_panel"
-                            )
-                        ],
-                    ]
-                ),
-            )
-
-    elif query_data == "finalizar_selecao_grupos":
-        user_data = await state.get_data()
-        grupos_selecionados = user_data.get("grupos_selecionados_msg", [])
-        mensagem = user_data.get("mensagem_programada")
-
-        if not grupos_selecionados:
-            await query.message.edit_text(
-                "Nenhum grupo selecionado. Por favor, selecione pelo menos um grupo.",
-                reply_markup=InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            InlineKeyboardButton(
-                                text="🔙 Voltar", callback_data="admin_panel"
-                            )
-                        ]
-                    ]
-                ),
-            )
-            return
-
-        await query.message.edit_text(
-            "Por favor, envie o horário (HH:MM) para a mensagem programada (ex: 10:30):"
-        )
-        await state.set_state(
-            AdminStates.programando_mensagem_horario_grupos_especificos
-        )  # Novo estado para receber o horário para grupos específicos
-
-    elif query_data == "admin_panel":
-        await state.clear()
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="📝 Programar Mensagem",
-                        callback_data="admin_programar_msg",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="⚙️ Configurações", callback_data="admin_config"
-                    )
-                ],
-            ]
-        )
-        await query.message.edit_text("Painel Administrativo:", reply_markup=keyboard)
-
-
-@dp.message(AdminStates.programando_mensagem_horario_grupos_especificos)
-async def receber_horario_programar_grupos_especificos(
-    message: types.Message, state: FSMContext
-):
-    horario = message.text
-    try:
-        datetime.strptime(horario, "%H:%M")
-    except ValueError:
-        await message.reply(
-            "Formato de horário inválido. Por favor, use HH:MM (ex: 10:30)."
-        )
-        return
-
-    user_data = await state.get_data()
-    mensagem = user_data.get("mensagem_programada")
-    grupos_selecionados = user_data.get("grupos_selecionados_msg", [])
-
-    for grupo_id in grupos_selecionados:
-        salvar_mensagem_programada(mensagem, horario, grupo_id=grupo_id)
-
-    await message.reply(
-        "Mensagem programada com sucesso para os grupos selecionados neste horário!",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="🔙 Voltar ao Painel Admin", callback_data="admin_panel"
-                    )
-                ]
-            ]
-        ),
-    )
-    await state.clear()
-
-
-# Função principal para iniciar o bot
 async def main():
     init_db()
-    # Iniciar o processamento de mensagens programadas em uma tarefa em segundo plano
-    asyncio.create_task(processar_mensagens_programadas())
+    # Iniciar o bot
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-    logging.info("Bot iniciado!")
     asyncio.run(main())
+
+
