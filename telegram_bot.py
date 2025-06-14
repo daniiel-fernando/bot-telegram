@@ -178,7 +178,7 @@ HORARIOS_DISPONIVEIS = [
 ]
 
 # ID da vendedora (deve ser configurado)
-VENDEDORA_ID = os.getenv("VENDEDORA_ID", "123456789")  # Substitua pelo ID real
+ADMIN_ID = os.getenv("ADMIN_ID", "1447551455,7575373579")  # Substitua pelo ID real
 
 
 # Funções de utilidade para o banco de dados
@@ -523,7 +523,7 @@ def get_horarios_keyboard(data, servico):
 # Função para notificar a vendedora
 async def notificar_vendedora(mensagem):
     try:
-        await bot.send_message(VENDEDORA_ID, mensagem, parse_mode="Markdown")
+        await bot.send_message(ADMIN_ID, mensagem, parse_mode="Markdown")
     except Exception as e:
         logging.error(f"Erro ao notificar vendedora: {e}")
 
@@ -535,7 +535,7 @@ async def send_welcome(message: types.Message, state: FSMContext):
 
     # Verificar se o comando foi enviado em um grupo
     if message.chat.type in ["group", "supergroup"]:
-        if str(message.from_user.id) == VENDEDORA_ID:
+        if str(message.from_user.id) == ADMIN_ID:
             if await verificar_admin_grupo(message.chat.id):
                 salvar_grupo_gerenciado(str(message.chat.id), message.chat.title)
                 await message.reply(
@@ -567,7 +567,7 @@ async def send_welcome(message: types.Message, state: FSMContext):
 # Comando /admin (apenas para vendedora)
 @dp.message(Command("admin"))
 async def admin_panel(message: types.Message, state: FSMContext):
-    if str(message.from_user.id) != VENDEDORA_ID:
+    if str(message.from_user.id) != ADMIN_ID:
         await message.reply("❌ Você não tem permissão para acessar este comando.")
         return
 
@@ -965,7 +965,7 @@ async def process_callback(query: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.configurando_rifa)
 async def process_set_rifa_link(message: types.Message, state: FSMContext):
-    if str(message.from_user.id) != VENDEDORA_ID:
+    if str(message.from_user.id) != ADMIN_ID:
         await message.reply("❌ Você não tem permissão para realizar esta ação.")
         await state.clear()
         return
@@ -979,7 +979,7 @@ async def process_set_rifa_link(message: types.Message, state: FSMContext):
 
 @dp.message(AdminStates.configurando_mensagem_rifa)
 async def process_set_rifa_message(message: types.Message, state: FSMContext):
-    if str(message.from_user.id) != VENDEDORA_ID:
+    if str(message.from_user.id) != ADMIN_ID:
         await message.reply("❌ Você não tem permissão para realizar esta ação.")
         await state.clear()
         return
@@ -1006,7 +1006,7 @@ async def process_set_rifa_message(message: types.Message, state: FSMContext):
 
 @dp.message(AdminStates.aguardando_mensagem_programada)
 async def process_programar_mensagem(message: types.Message, state: FSMContext):
-    if str(message.from_user.id) != VENDEDORA_ID:
+    if str(message.from_user.id) != ADMIN_ID:
         await message.reply("❌ Você não tem permissão para realizar esta ação.")
         await state.clear()
         return
