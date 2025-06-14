@@ -21,7 +21,7 @@ start_process() {
     local log_file=$2
     
     echo "🚀 Iniciando $script_name..."
-    nohup python3.11 "$script_name" > "$log_file" 2>&1 &
+    nohup python "$script_name" > "$log_file" 2>&1 &
     local pid=$!
     echo "📝 PID: $pid | Log: $log_file"
     sleep 2
