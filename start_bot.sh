@@ -84,5 +84,9 @@ echo "  📄 logs/telegram_bot.log"
 echo "  📄 logs/notification_manager.log"
 echo ""
 echo "🛑 Para parar todos os processos, execute: ./stop_bot.sh"
+echo ""
+echo "🔍 Acompanhando logs ao vivo (Ctrl+C para parar):"
+tail -f logs/telegram_bot.log
+
 
 
