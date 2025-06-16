@@ -902,3 +902,5 @@ async def main():
 if __name__ == "__main__":
     logging.info("Bot iniciado!")
     asyncio.run(main())
+
+from notification_manager import NotificationManager
