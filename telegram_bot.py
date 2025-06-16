@@ -18,6 +18,7 @@ import calendar
 import schedule
 import time
 import threading
+from notification_manager import NotificationManager
 
 WHATSAPP_NUMBER = "5579991196359"
 
@@ -902,5 +903,3 @@ async def main():
 if __name__ == "__main__":
     logging.info("Bot iniciado!")
     asyncio.run(main())
-
-from notification_manager import NotificationManager
