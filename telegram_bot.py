@@ -30,7 +30,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 # Token do bot (deve ser configurado via variável de ambiente)
-BOT_TOKEN = os.getenv("BOT_TOKEN", "SEU_TOKEN_AQUI")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7511685057:AAH0RMb1Ys2uM1Cejgdrh4KvQ6augHYjfdU")
 
 # Inicialização do bot e dispatcher
 bot = Bot(token=BOT_TOKEN)
